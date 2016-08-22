@@ -40,14 +40,13 @@ var LocalPrefix string
 // a group number.
 var importToGroup = []func(importPath string) (num int, ok bool){
 	func(importPath string) (num int, ok bool) {
-		if LocalPrefix != "" && strings.HasPrefix(importPath, LocalPrefix) {
-			return 3, true
-		}
-		return
-	},
-	func(importPath string) (num int, ok bool) {
-		if strings.HasPrefix(importPath, "appengine") {
-			return 2, true
+		if strings.HasPrefix(importPath, "junolab.net") {
+			if strings.HasPrefix(importPath, "junolab.net/ms_core") {
+				return 2, true
+			} else if strings.HasPrefix(importPath, "junolab.net/ms/") {
+				return 3, true
+			}
+			return 4, true
 		}
 		return
 	},
@@ -124,7 +123,18 @@ func dirPackageInfo(srcDir, filename string) (*packageInfo, error) {
 	return info, nil
 }
 
+const JUNOLAB = "junolab.net/"
+
+func junoProjectName(filename string) string {
+	if strings.Contains(filename, JUNOLAB) {
+		return strings.Split(strings.Split(filename, JUNOLAB)[1], "/")[0]
+	}
+	return ""
+}
+
 func fixImports(fset *token.FileSet, f *ast.File, filename string) (added []string, err error) {
+	projName := junoProjectName(filename)
+
 	// refs are a set of possible package references currently unsatisfied by imports.
 	// first key: either base package (e.g. "fmt") or renamed package
 	// second key: referenced package symbol (e.g. "Println")
@@ -153,11 +163,36 @@ func fixImports(fset *token.FileSet, f *ast.File, filename string) (added []stri
 		}
 		switch v := node.(type) {
 		case *ast.ImportSpec:
+			ipath := strings.Trim(v.Path.Value, `"`)
+			importJunoProj := junoProjectName(ipath)
+
+			if importJunoProj != "" && importJunoProj != "ms" && importJunoProj != "ms_core" {
+				if projName != importJunoProj {
+					parts := strings.Split(ipath, "/")
+					if strings.HasPrefix(importJunoProj, "ms_") {
+						importJunoProj = importJunoProj[3:]
+					} else if strings.HasPrefix(importJunoProj, "lib_") {
+						importJunoProj = importJunoProj[4:]
+					}
+					lastPart := parts[len(parts)-1]
+					if importJunoProj != lastPart {
+						v.Name = &ast.Ident{
+							NamePos: v.Path.ValuePos,
+							Name:    importJunoProj + "_" + lastPart,
+						}
+					} else {
+						v.Name = nil
+					}
+				} else {
+					//Remove name???
+					//v.Name = nil
+				}
+			}
+
 			if v.Name != nil {
 				decls[v.Name.Name] = v
 				break
 			}
-			ipath := strings.Trim(v.Path.Value, `"`)
 			if ipath == "C" {
 				break
 			}
@@ -199,6 +234,7 @@ func fixImports(fset *token.FileSet, f *ast.File, filename string) (added []stri
 			unusedImport[strings.Trim(is.Path.Value, `"`)] = name
 		}
 	}
+	/* //Do not remove any imports
 	for ipath, name := range unusedImport {
 		if ipath == "C" {
 			// Don't remove cgo stuff.
@@ -206,10 +242,12 @@ func fixImports(fset *token.FileSet, f *ast.File, filename string) (added []stri
 		}
 		astutil.DeleteNamedImport(fset, f, name, ipath)
 	}
+	*/
 
 	for pkgName, symbols := range refs {
 		if len(symbols) == 0 {
 			// skip over packages already imported
+			//log.Printf("skip %s\n", pkgName)
 			delete(refs, pkgName)
 		}
 	}
@@ -240,8 +278,10 @@ func fixImports(fset *token.FileSet, f *ast.File, filename string) (added []stri
 		}
 		if result.ipath != "" {
 			if result.name != "" {
+				//log.Printf("add %s %s\n", result.name, result.ipath)
 				astutil.AddNamedImport(fset, f, result.name, result.ipath)
 			} else {
+				//log.Printf("add %s\n", result.ipath)
 				astutil.AddImport(fset, f, result.ipath)
 			}
 			added = append(added, result.ipath)

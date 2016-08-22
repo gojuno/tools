@@ -22,7 +22,7 @@ import (
 	"runtime/trace"
 	"strings"
 
-	"golang.org/x/tools/imports"
+	"github.com/gojuno/tools/imports"
 )
 
 var (
